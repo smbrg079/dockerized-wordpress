@@ -30,7 +30,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-buildx-
 
-    # Step 4: Install Docker Compose
+    # Step 4: Install Dependencies
+    # We use a temporary composer image to install dependencies into the wordpress directory
+    # This ensures that when we mount the volume later, the vendor directory exists.
+    - name: Install dependencies
+      run: |
+        docker run --rm -v $(pwd)/wordpress:/app -w /app composer install
+
+    # Step 5: Install Docker Compose
     - name: Install Docker Compose
       run: |
         sudo apt-get update
@@ -38,24 +45,42 @@ jobs:
         sudo curl -L https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
         sudo chmod +x /usr/local/bin/docker-compose
 
-    # Step 5: Build Docker images
+    # Step 6: Build Docker images
     - name: Build Docker images
       run: |
         sudo docker-compose build
 
-    # Step 6: Run tests (if any)
+    # Step 7: Start containers
+    # We need to start the containers before we can exec into them
+    - name: Start containers
+      run: |
+        sudo docker-compose up -d
+
+    # Step 8: Run tests
+    # Wait for the container to be ready might be necessary, but for now we'll try running immediately.
+    # We use the 'php' service name from docker-compose, assuming that's where tests run (or wordpress service if that's what was intended)
+    # The previous file used 'wordpress' but the docker-compose has 'php' and 'nginx'. The 'php' service uses image 'wordpress:php8.2-fpm'.
+    # I'll check docker-compose.yml again to be sure about service names.
     - name: Run tests
       run: |
-        sudo docker-compose exec wordpress php vendor/bin/phpunit
+        sudo docker-compose exec -T php vendor/bin/phpunit
 
-    # Step 7: Push Docker images to Docker Hub
+    # Step 9: Stop containers
+    - name: Stop containers
+      if: always()
+      run: |
+        sudo docker-compose down
+
+    # Step 10: Push Docker images to Docker Hub
+    # Only push on main branch push, not PRs
     - name: Login to Docker Hub
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: docker/login-action@v2
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Push Docker images to Docker Hub
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
         sudo docker-compose push
-

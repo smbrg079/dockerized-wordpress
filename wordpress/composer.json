@@ -1,0 +1,12 @@
+{
+    "name": "my-wordpress-project/wordpress",
+    "description": "WordPress Project",
+    "require-dev": {
+        "phpunit/phpunit": "^9.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    }
+}

@@ -2,3 +2,6 @@
 wordpress/wp-config.php
 wordpress/wp-content/uploads/
 mysql-data/
+wordpress/vendor/
+.phpunit.result.cache
+wordpress/.phpunit.result.cache
