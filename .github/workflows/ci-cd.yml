@@ -3,84 +3,56 @@ name: Docker CI/CD Pipeline
 on:
   push:
     branches:
-      - main  # Trigger the pipeline on pushes to the main branch
+      - main
   pull_request:
     branches:
-      - main  # Trigger on pull requests to the main branch
+      - main
 
 jobs:
-  build:
-    runs-on: ubuntu-latest  # Use the latest Ubuntu runner for the job
+  build-and-test:
+    runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Checkout the repository
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # Step 2: Set up Docker Buildx
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    # Step 3: Cache Docker layers for faster builds
-    - name: Cache Docker layers
-      uses: actions/cache@v4
-      with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
 
-    # Step 4: Install Dependencies
-    # We use a temporary composer image to install dependencies into the wordpress directory
-    # This ensures that when we mount the volume later, the vendor directory exists.
-    - name: Install dependencies
-      run: |
-        docker run --rm -v $(pwd)/wordpress:/app -w /app composer install
+      - name: Install dependencies
+        run: |
+          docker run --rm -v $(pwd)/wordpress:/app -w /app composer install
 
-    # Step 5: Install Docker Compose
-    - name: Install Docker Compose
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y curl
-        sudo curl -L https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
-        sudo chmod +x /usr/local/bin/docker-compose
+      - name: Build and Start Containers
+        run: |
+          docker compose build
+          docker compose up -d
 
-    # Step 6: Build Docker images
-    - name: Build Docker images
-      run: |
-        sudo docker-compose build
+      - name: Run Tests
+        run: |
+          docker compose exec -T php vendor/bin/phpunit
 
-    # Step 7: Start containers
-    # We need to start the containers before we can exec into them
-    - name: Start containers
-      run: |
-        sudo docker-compose up -d
+      - name: Stop Containers
+        if: always()
+        run: |
+          docker compose down
 
-    # Step 8: Run tests
-    # Wait for the container to be ready might be necessary, but for now we'll try running immediately.
-    # We use the 'php' service name from docker-compose, assuming that's where tests run (or wordpress service if that's what was intended)
-    # The previous file used 'wordpress' but the docker-compose has 'php' and 'nginx'. The 'php' service uses image 'wordpress:php8.2-fpm'.
-    # I'll check docker-compose.yml again to be sure about service names.
-    - name: Run tests
-      run: |
-        sudo docker-compose exec -T php vendor/bin/phpunit
+      - name: Login to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # Step 9: Stop containers
-    - name: Stop containers
-      if: always()
-      run: |
-        sudo docker-compose down
-
-    # Step 10: Push Docker images to Docker Hub
-    # Only push on main branch push, not PRs
-    - name: Login to Docker Hub
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: Push Docker images to Docker Hub
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        sudo docker-compose push
+      - name: Push Images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker compose push
